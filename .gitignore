@@ -1,40 +1,35 @@
-# keep each top level section alphabetical
-# keep each item within the sections alphabetical
 
-# large files
-*.png
-*.gif
-
-# mac
+# 3D Model Files
+dist/
 *.DS_Store
-
-# misc
-*logs*
-*runs*
-*tb_logs*
-*wandb*
-*wandb_logs*
-outputs/*
-
-# python
-*__pycache__
 *.egg-info
+*.gif
 *.hypothesis
 *.ipynb_checkpoints
-*.mypy_cache
-*.pyc
-
-# vim
-*.swp
+# keep each item within the sections alphabetical
+# keep each top level section alphabetical
+# large files
+*logs*
+# mac
+# misc
 MUJOCO_LOG.TXT
-
+*.mypy_cache
+outputs/*
+*.png
+*.pyc
+*__pycache__
+__pycache__/
+# python
+# robot packages
 #ros
 ros2/build/
 ros2/install/
 ros2/log/
-
-# robot packages
+*runs*
+*.stlbuild/
+*.swp
+*tb_logs*
 third_party/i2rt/
-
-# 3D Model Files
-*.stl
+# vim
+*wandb*
+*wandb_logs*

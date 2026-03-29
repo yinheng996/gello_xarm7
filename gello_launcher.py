@@ -573,7 +573,7 @@ class HomePage(QWidget):
 
     def refresh(self):
         self._port = detect_port()
-        config_ok  = CONFIG_PATH.exists()
+        config_ok  = CONFIG_SIM.exists()
         model_ok     = MODEL_PATH.exists()
 
         # Update checks
@@ -1027,9 +1027,14 @@ class CalibratePage(QWidget):
         self._launch_btn.setObjectName("launch")
         self._launch_btn.setVisible(False)
         self._launch_btn.clicked.connect(self._do_launch)
+        self._real_btn = QPushButton("🦾  Launch Real Arm")
+        self._real_btn.setObjectName("ghost")
+        self._real_btn.setVisible(False)
+        self._real_btn.clicked.connect(self._do_launch_real)
         btn_row.addWidget(self._stop_btn)
         btn_row.addWidget(self._cal_btn)
         btn_row.addWidget(self._launch_btn)
+        btn_row.addWidget(self._real_btn)
         root.addLayout(btn_row)
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -1045,6 +1050,7 @@ class CalibratePage(QWidget):
         self._result_card.setVisible(False)
         self._cal_btn.setVisible(True); self._cal_btn.setEnabled(True); self._cal_btn.setText("📐  Run Calibration")
         self._launch_btn.setVisible(False)
+        self._real_btn.setVisible(False)
         self._stop_btn.setEnabled(False); self._back_btn.setEnabled(True)
         # Start live & scan
         self._do_scan()
@@ -1132,22 +1138,41 @@ class CalibratePage(QWidget):
             self._cal_w.error.connect(self._on_cal_error)
             self._cal_w.start()
 
-    def _on_cal_done(self, offsets: list, g_open: float, g_close: float):
+    def _on_cal_done(self, offsets: list, g_open: float, g_close: float, residuals: list):
         self._spinner.setVisible(False); self._stop_btn.setEnabled(False)
+        port = self._port or ""
         try:
-            update_yaml(offsets, g_open, g_close, self._port or "")
+            update_yaml(offsets, g_open, g_close, port, CONFIG_SIM)
+            if CONFIG_REAL.exists():
+                update_yaml(offsets, g_open, g_close, port, CONFIG_REAL)
         except Exception as e:
             self._on_cal_error(str(e)); return
-        self._result_lbl.setText(
-            "Offsets: [" + ", ".join(f"{o:.3f}" for o in offsets) + "]\n"
-            f"Gripper — open: {g_open:.1f}°   close: {g_close:.1f}°"
-        )
+
+        # Build result text with per-joint residuals
+        lines = "Offsets: [" + ", ".join(f"{o:.3f}" for o in offsets) + "]\n"
+        lines += f"Gripper — open: {g_open:.1f}°   close: {g_close:.1f}°\n"
+        bad = [i + 1 for i, r in enumerate(residuals) if r > np.rad2deg(CAL_RESIDUAL_WARN)]
+        if bad:
+            lines += f"\n⚠  Joints {bad} are >{np.rad2deg(CAL_RESIDUAL_WARN):.0f}° from nearest π/2 — check zero pose"
+        self._result_lbl.setText(lines)
         self._result_card.setVisible(True)
-        self._cal_title.setText("✓  Calibration complete")
-        self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {GREEN};")
-        self._cal_body.setText("Configuration saved. Click Launch Simulation when ready.")
-        self._cal_btn.setVisible(False)
+
+        if bad:
+            self._cal_title.setText("⚠  Calibration complete — some joints may be off")
+            self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {ORANGE};")
+            self._cal_body.setText(
+                f"Joints {bad} have high residual error. Make sure the GELLO is at the exact zero "
+                "position (arm straight up) before calibrating. You can retry or proceed.")
+            self._cal_btn.setVisible(True); self._cal_btn.setEnabled(True)
+            self._cal_btn.setText("📐  Retry Calibration")
+        else:
+            self._cal_title.setText("✓  Calibration complete")
+            self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {GREEN};")
+            self._cal_body.setText("Configuration saved. Launch simulation or connect the real arm.")
+            self._cal_btn.setVisible(False)
+
         self._launch_btn.setVisible(True)
+        self._real_btn.setVisible(CONFIG_REAL.exists())
         self._back_btn.setEnabled(True)
         # Restart live view
         self._start_live()
@@ -1186,14 +1211,45 @@ class CalibratePage(QWidget):
 
         self._proc = subprocess.Popen(
             [python, str(BASE_DIR / "experiments" / "launch_yaml.py"),
-             "--left-config-path", str(CONFIG_PATH)],
+             "--left-config-path", str(CONFIG_SIM)],
             cwd=str(BASE_DIR),
             start_new_session=True,   # own process group → killpg works
         )
         self._launch_btn.setText("Simulation running…")
         self._launch_btn.setEnabled(False)
+        self._real_btn.setEnabled(False)
         self._stop_btn.setEnabled(True)
         self._stop_btn.setText("✕  Stop Sim")
+
+    def _do_launch_real(self):
+        """Launch with the real xArm7 arm instead of the MuJoCo simulation."""
+        if self._live_w and self._live_w.isRunning():
+            self._live_w.stop(); self._live_w.wait(1000)
+        if self._scan_w and self._scan_w.isRunning():
+            self._scan_w.stop(); self._scan_w.wait(500)
+        self._live_lbl.setText("released"); self._live_lbl.setStyleSheet(f"font-size: 11px; color: {MUTED};")
+
+        for candidate in [
+            BASE_DIR / ".venv" / "bin" / "python",
+            BASE_DIR / ".venv" / "Scripts" / "python.exe",
+            Path(sys.executable),
+        ]:
+            if Path(candidate).exists():
+                python = str(candidate); break
+        else:
+            python = sys.executable
+
+        self._proc = subprocess.Popen(
+            [python, str(BASE_DIR / "experiments" / "launch_yaml.py"),
+             "--left-config-path", str(CONFIG_REAL)],
+            cwd=str(BASE_DIR),
+            start_new_session=True,
+        )
+        self._real_btn.setText("Real arm running…")
+        self._real_btn.setEnabled(False)
+        self._launch_btn.setEnabled(False)
+        self._stop_btn.setEnabled(True)
+        self._stop_btn.setText("✕  Stop Arm")
 
     # ── Stop ───────────────────────────────────────────────────────────────────
 
@@ -1220,6 +1276,7 @@ class CalibratePage(QWidget):
         self._cal_btn.setVisible(True); self._cal_btn.setEnabled(True)
         self._cal_btn.setText("📐  Run Calibration")
         self._launch_btn.setText("▶  Launch Simulation"); self._launch_btn.setEnabled(True)
+        self._real_btn.setText("🦾  Launch Real Arm"); self._real_btn.setEnabled(True)
         self._stop_btn.setEnabled(False); self._stop_btn.setText("✕  Stop")
         self._back_btn.setEnabled(True)
         self._start_live()
