@@ -1,7 +1,7 @@
 robot:
   _target_: gello.robots.sim_robot.MujocoRobotServer
   xml_path: "third_party/mujoco_menagerie/ufactory_xarm7/xarm7.xml"
-  gripper_xml_path: null
+  gripper_xml_path: "third_party/mujoco_menagerie/ufactory_xarm7/hand.xml"
   host: "127.0.0.1"
   port: 6001
 
@@ -17,11 +17,11 @@ agent:
       6.2832,
       3.1416,
       4.7124,
-      1.5708,
-      3.1416
+      7.8540,
+      0.0000
     ]
-    joint_signs: [1, 1, 1, 1, 1, 1, 1]
-    gripper_config: [8, 196, 155]
+    joint_signs: [1, -1, 1, 1, 1, 1, -1]
+    gripper_config: [8, 196, 154]
   start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 hz: 30

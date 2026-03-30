@@ -316,7 +316,7 @@ QPushButton {{
     border: none;
     border-radius: 8px;
     padding: 9px 20px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
 }}
 QPushButton:hover   {{ background: {ACCENTh}; }}
@@ -360,15 +360,15 @@ QPushButton#link {{
 }}
 QPushButton#link:hover {{ color: {ACCENTh}; }}
 
-QLabel#h1    {{ font-size: 24px; font-weight: 700; color: {TEXT}; }}
-QLabel#h2    {{ font-size: 16px; font-weight: 600; color: {TEXT}; }}
-QLabel#h3    {{ font-size: 13px; font-weight: 600; color: {TEXT}; }}
-QLabel#body  {{ font-size: 13px; color: {MUTED}; line-height: 1.5; }}
-QLabel#tag   {{ font-size: 11px; color: {MUTED}; font-weight: 500; }}
-QLabel#ok    {{ font-size: 13px; color: {GREEN};  font-weight: 600; }}
-QLabel#warn  {{ font-size: 13px; color: {ORANGE}; font-weight: 600; }}
-QLabel#err   {{ font-size: 13px; color: {RED};    font-weight: 600; }}
-QLabel#mono  {{ font-family: 'SF Mono', 'Consolas', monospace; font-size: 12px; color: {ACCENT}; }}
+QLabel#h1    {{ font-size: 26px; font-weight: 700; color: {TEXT}; }}
+QLabel#h2    {{ font-size: 18px; font-weight: 600; color: {TEXT}; }}
+QLabel#h3    {{ font-size: 14px; font-weight: 600; color: {TEXT}; }}
+QLabel#body  {{ font-size: 14px; color: {MUTED}; line-height: 1.5; }}
+QLabel#tag   {{ font-size: 12px; color: {MUTED}; font-weight: 500; }}
+QLabel#ok    {{ font-size: 14px; color: {GREEN};  font-weight: 600; }}
+QLabel#warn  {{ font-size: 14px; color: {ORANGE}; font-weight: 600; }}
+QLabel#err   {{ font-size: 14px; color: {RED};    font-weight: 600; }}
+QLabel#mono  {{ font-family: 'SF Mono', 'Consolas', monospace; font-size: 13px; color: {ACCENT}; }}
 
 QProgressBar {{
     background: {BORDER};
@@ -560,7 +560,7 @@ class HomePage(QWidget):
         self._setup_btn.clicked.connect(self.go_setup)
         root.addWidget(self._setup_btn)
 
-        self._launch_btn = QPushButton("▶   Calibrate & Launch Simulation")
+        self._launch_btn = QPushButton("▶   Calibrate & Launch")
         self._launch_btn.setObjectName("launch")
         self._launch_btn.setEnabled(False)
         self._launch_btn.clicked.connect(self.go_launch)
@@ -1026,11 +1026,11 @@ class CalibratePage(QWidget):
         self._stop_btn.clicked.connect(self._do_stop)
         self._cal_btn  = QPushButton("📐  Run Calibration")
         self._cal_btn.clicked.connect(self._do_calibrate)
-        self._launch_btn = QPushButton("▶  Launch Simulation")
+        self._launch_btn = QPushButton("▶  Simulation")
         self._launch_btn.setObjectName("launch")
         self._launch_btn.setVisible(False)
         self._launch_btn.clicked.connect(self._do_launch)
-        self._real_btn = QPushButton("🦾  Launch Real Arm")
+        self._real_btn = QPushButton("🦾  xArm7")
         self._real_btn.setObjectName("ghost")
         self._real_btn.setVisible(False)
         self._real_btn.clicked.connect(self._do_launch_real)
@@ -1226,10 +1226,13 @@ class CalibratePage(QWidget):
             cfg = OmegaConf.to_container(OmegaConf.load(str(CONFIG_SIM)), resolve=True)
             agent = _instantiate(cfg["agent"])
             xml_path = str(BASE_DIR / cfg["robot"]["xml_path"])
-            sim = SimulationThread(xml_path, agent)
+            gripper_path = cfg["robot"].get("gripper_xml_path")
+            if gripper_path:
+                gripper_path = str(BASE_DIR / gripper_path)
+            sim = SimulationThread(xml_path, agent, gripper_xml_path=gripper_path)
             self.go_sim.emit(sim)
         except Exception as e:
-            self._launch_btn.setText("▶  Launch Simulation"); self._launch_btn.setEnabled(True)
+            self._launch_btn.setText("▶  Simulation"); self._launch_btn.setEnabled(True)
             self._real_btn.setEnabled(True); self._back_btn.setEnabled(True)
             self._cal_status.setText(f"Launch failed: {e}")
             self._cal_status.setStyleSheet(f"color: {RED}; font-size: 12px;")
@@ -1289,8 +1292,8 @@ class CalibratePage(QWidget):
         self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {MUTED};")
         self._cal_btn.setVisible(True); self._cal_btn.setEnabled(True)
         self._cal_btn.setText("📐  Run Calibration")
-        self._launch_btn.setText("▶  Launch Simulation"); self._launch_btn.setEnabled(True)
-        self._real_btn.setText("🦾  Launch Real Arm"); self._real_btn.setEnabled(True)
+        self._launch_btn.setText("▶  Simulation"); self._launch_btn.setEnabled(True)
+        self._real_btn.setText("🦾  xArm7"); self._real_btn.setEnabled(True)
         self._stop_btn.setEnabled(False); self._stop_btn.setText("✕  Stop")
         self._back_btn.setEnabled(True)
         self._start_live()
@@ -1328,9 +1331,11 @@ class SimulationThread(QThread):
     telemetry   = pyqtSignal(dict)
     error       = pyqtSignal(str)
 
-    def __init__(self, xml_path: str, agent, render_w=800, render_h=600):
+    def __init__(self, xml_path: str, agent, render_w=800, render_h=600,
+                 gripper_xml_path: Optional[str] = None):
         super().__init__()
         self._xml_path = xml_path
+        self._gripper_xml_path = gripper_xml_path
         self._agent = agent
         self._rw, self._rh = render_w, render_h
         self._running = True
@@ -1353,7 +1358,7 @@ class SimulationThread(QThread):
         try:
             import mujoco
             from gello.robots.sim_robot import build_scene
-            arena = build_scene(self._xml_path)
+            arena = build_scene(self._xml_path, self._gripper_xml_path)
             xml_string = arena.to_xml_string()
             assets = {}
             for asset in arena.asset.all_children():
@@ -1361,6 +1366,9 @@ class SimulationThread(QThread):
                     f = asset.file
                     assets[f.get_vfs_filename()] = f.contents
             model = mujoco.MjModel.from_xml_string(xml_string, assets)
+            # Ensure offscreen framebuffer is large enough for our render size
+            model.vis.global_.offwidth = max(model.vis.global_.offwidth, self._rw)
+            model.vis.global_.offheight = max(model.vis.global_.offheight, self._rh)
             data = mujoco.MjData(model)
             num_joints = model.nu
             renderer = mujoco.Renderer(model, height=self._rh, width=self._rw)
@@ -1415,6 +1423,7 @@ class SimulationThread(QThread):
 
 class MujocoViewerWidget(QWidget):
     """Viewport with mouse orbit controls, screenshot and recording."""
+    recording_changed = pyqtSignal(bool)
     def __init__(self):
         super().__init__()
         self._sim: Optional[SimulationThread] = None
@@ -1424,23 +1433,14 @@ class MujocoViewerWidget(QWidget):
         self._drag_last = None
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(0)
+        # Viewport
         self._viewport = QLabel()
         self._viewport.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._viewport.setStyleSheet("background: #000; border-radius: 8px;")
         self._viewport.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._viewport.setMinimumSize(400, 300)
         lay.addWidget(self._viewport)
-        # Toolbar
-        tb = QHBoxLayout(); tb.setSpacing(8)
-        self._snap_btn = QPushButton("📷  Screenshot")
-        self._snap_btn.setObjectName("ghost"); self._snap_btn.setFixedHeight(30)
-        self._snap_btn.clicked.connect(self._screenshot)
-        self._rec_btn = QPushButton("⏺  Record")
-        self._rec_btn.setObjectName("ghost"); self._rec_btn.setFixedHeight(30)
-        self._rec_btn.clicked.connect(self._toggle_record)
-        tb.addWidget(self._snap_btn); tb.addWidget(self._rec_btn); tb.addStretch()
-        lay.addLayout(tb)
 
     def attach(self, sim: SimulationThread):
         self._sim = sim
@@ -1485,12 +1485,10 @@ class MujocoViewerWidget(QWidget):
     def _toggle_record(self):
         if not self._recording:
             self._recording = True; self._rec_frames = []
-            self._rec_btn.setText("⏹  Stop Recording")
-            self._rec_btn.setStyleSheet(f"color: {RED}; border-color: {RED};")
+            self.recording_changed.emit(True)
         else:
             self._recording = False
-            self._rec_btn.setText("⏺  Record")
-            self._rec_btn.setStyleSheet("")
+            self.recording_changed.emit(False)
             if not self._rec_frames: return
             path, _ = QFileDialog.getSaveFileName(self, "Save Recording", "recording.mp4",
                                                    "MP4 (*.mp4);;PNG sequence directory (*)")
@@ -1516,54 +1514,84 @@ class MujocoViewerWidget(QWidget):
 
 
 class PerformanceDashboard(QWidget):
-    """Side panel showing live joint angles, loop Hz, and sim time."""
+    """Side panel showing live joint angles, loop Hz, sim time, and action buttons."""
+    screenshot_clicked = pyqtSignal()
+    record_clicked     = pyqtSignal()
+    stop_clicked       = pyqtSignal()
+
     def __init__(self):
         super().__init__()
-        self.setFixedWidth(220)
+        self.setFixedWidth(240)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(6)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(8)
         # Header
-        lay.addWidget(label("Dashboard", "h2"))
-        lay.addSpacing(4)
+        lay.addWidget(label("Dashboard", "h1"))
+        lay.addSpacing(2)
         # Hz
         self._hz_lbl = QLabel("Loop: — Hz")
-        self._hz_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {GREEN};")
+        self._hz_lbl.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {GREEN};")
         lay.addWidget(self._hz_lbl)
         # Sim time
-        self._time_lbl = label("Sim: 0.0 s", "tag")
+        self._time_lbl = QLabel("Sim: 0.0 s")
+        self._time_lbl.setStyleSheet(f"font-size: 13px; color: {MUTED};")
         lay.addWidget(self._time_lbl)
-        lay.addSpacing(8)
+        lay.addSpacing(6)
         lay.addWidget(hline())
         lay.addSpacing(4)
-        lay.addWidget(label("Joint Angles (°)", "h3"))
+        lay.addWidget(label("Joint Angles", "h2"))
         lay.addSpacing(4)
         # Joint rows
         self._bars: List[QProgressBar] = []
         self._vals: List[QLabel] = []
         for i in range(NUM_JOINTS):
             row = QHBoxLayout(); row.setSpacing(6)
-            nm = QLabel(f"J{i+1}"); nm.setFixedWidth(24)
-            nm.setStyleSheet(f"font-size: 11px; color: {MUTED}; font-weight: 600;")
+            nm = QLabel(f"J{i+1}"); nm.setFixedWidth(28)
+            nm.setStyleSheet(f"font-size: 12px; color: {MUTED}; font-weight: 600;")
             bar = QProgressBar(); bar.setRange(-180, 180); bar.setValue(0)
-            bar.setTextVisible(False); bar.setFixedHeight(10)
+            bar.setTextVisible(False); bar.setFixedHeight(12)
             bar.setStyleSheet(f"""
-                QProgressBar {{ background: {BORDER}; border: none; border-radius: 4px; }}
-                QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
+                QProgressBar {{ background: {BORDER}; border: none; border-radius: 5px; }}
+                QProgressBar::chunk {{ background: {ACCENT}; border-radius: 5px; }}
             """)
-            val = QLabel("0.0"); val.setFixedWidth(50)
+            val = QLabel("0.0"); val.setFixedWidth(52)
             val.setAlignment(Qt.AlignmentFlag.AlignRight)
-            val.setStyleSheet(f"font-family: monospace; font-size: 11px; color: {TEXT}; font-weight: 600;")
+            val.setStyleSheet(f"font-family: monospace; font-size: 12px; color: {TEXT}; font-weight: 600;")
             row.addWidget(nm); row.addWidget(bar); row.addWidget(val)
             lay.addLayout(row)
             self._bars.append(bar); self._vals.append(val)
         lay.addStretch()
+        # Action buttons
+        lay.addWidget(hline())
+        lay.addSpacing(4)
+        btn_row = QHBoxLayout(); btn_row.setSpacing(6)
+        self._snap_btn = QPushButton("Screenshot"); self._snap_btn.setObjectName("ghost")
+        self._snap_btn.setToolTip("Save screenshot as PNG")
+        self._snap_btn.clicked.connect(self.screenshot_clicked)
+        self._rec_btn = QPushButton("Record"); self._rec_btn.setObjectName("ghost")
+        self._rec_btn.setToolTip("Start / stop screen recording")
+        self._rec_btn.clicked.connect(self.record_clicked)
+        btn_row.addWidget(self._snap_btn); btn_row.addWidget(self._rec_btn)
+        lay.addLayout(btn_row)
+        lay.addSpacing(4)
+        self._stop_btn = QPushButton("Stop Simulation"); self._stop_btn.setObjectName("stop")
+        self._stop_btn.clicked.connect(self.stop_clicked)
+        lay.addWidget(self._stop_btn)
+
+    def set_recording(self, active: bool):
+        if active:
+            self._rec_btn.setText("Stop Rec")
+            self._rec_btn.setStyleSheet(f"background: {RED}; color: white; border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: 600;")
+        else:
+            self._rec_btn.setText("Record")
+            self._rec_btn.setStyleSheet("")
+            self._rec_btn.setObjectName("ghost")
 
     def update_telemetry(self, data: dict):
         hz = data.get("hz", 0)
         self._hz_lbl.setText(f"Loop: {hz:.0f} Hz")
         c = GREEN if hz > 25 else (ORANGE if hz > 10 else RED)
-        self._hz_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {c};")
+        self._hz_lbl.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {c};")
         self._time_lbl.setText(f"Sim: {data.get('sim_time', 0):.1f} s")
         for i, deg in enumerate(data.get("joint_deg", [])):
             if i < len(self._bars):
@@ -1571,8 +1599,8 @@ class PerformanceDashboard(QWidget):
                 self._vals[i].setText(f"{deg:+.1f}")
                 ac = GREEN if abs(deg) < 90 else (ORANGE if abs(deg) < 150 else RED)
                 self._bars[i].setStyleSheet(f"""
-                    QProgressBar {{ background: {BORDER}; border: none; border-radius: 4px; }}
-                    QProgressBar::chunk {{ background: {ac}; border-radius: 4px; }}
+                    QProgressBar {{ background: {BORDER}; border: none; border-radius: 5px; }}
+                    QProgressBar::chunk {{ background: {ac}; border-radius: 5px; }}
                 """)
 
 
@@ -1599,16 +1627,17 @@ class SimulationPage(QWidget):
         body = QHBoxLayout(); body.setSpacing(10)
         self._viewer = MujocoViewerWidget()
         self._dash = PerformanceDashboard()
+        # Wire dashboard buttons to viewer actions
+        self._dash.screenshot_clicked.connect(self._viewer._screenshot)
+        self._dash.record_clicked.connect(self._viewer._toggle_record)
+        self._dash.stop_clicked.connect(self._exit)
+        self._viewer.recording_changed.connect(self._dash.set_recording)
         dash_card = card_widget()
         dc = QVBoxLayout(dash_card); dc.setContentsMargins(0, 0, 0, 0)
         dc.addWidget(self._dash)
         body.addWidget(self._viewer, stretch=3)
         body.addWidget(dash_card, stretch=0)
         root.addLayout(body)
-        # Stop button
-        self._stop_btn = QPushButton("✕  Stop Simulation"); self._stop_btn.setObjectName("stop")
-        self._stop_btn.clicked.connect(self._exit)
-        root.addWidget(self._stop_btn)
 
     def start(self, sim_thread: SimulationThread):
         self._sim = sim_thread
@@ -1635,7 +1664,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("GELLO xArm7 Launcher")
-        self.setMinimumSize(640, 620); self.resize(660, 660)
+        self.setMinimumSize(800, 600)
         self._stack = QStackedWidget(); self.setCentralWidget(self._stack)
 
         self._home    = HomePage()
@@ -1667,12 +1696,10 @@ class MainWindow(QMainWindow):
         self._cal.start(port); self._stack.setCurrentIndex(2)
 
     def _show_simulation(self, sim_thread: SimulationThread):
-        self.resize(1100, 700)
         self._sim_page.start(sim_thread)
         self._stack.setCurrentIndex(3)
 
     def _show_calibrate_from_sim(self):
-        self.resize(660, 660)
         self._show_calibrate()
 
     def closeEvent(self, event):
@@ -1686,7 +1713,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     app.setApplicationName("GELLO xArm7 Launcher")
-    w = MainWindow(); w.show()
+    w = MainWindow(); w.showMaximized()
     sys.exit(app.exec())
 
 
