@@ -5,22 +5,24 @@ Professional GUI for servo onboarding, calibration, and simulation launch.
 Cross-platform: Linux and Windows.
 """
 
+import importlib
 import json
 import os
 import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor
+from PyQt6.QtGui import QColor, QCursor, QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
-    QLabel, QMainWindow, QProgressBar, QPushButton, QStackedWidget,
+    QApplication, QFileDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
+    QLabel, QMainWindow, QProgressBar, QPushButton, QSizePolicy, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -908,6 +910,7 @@ class OnboardingPage(QWidget):
 
 class CalibratePage(QWidget):
     go_back = pyqtSignal()
+    go_sim  = pyqtSignal(object)   # emits SimulationThread
 
     def __init__(self):
         super().__init__()
@@ -1042,6 +1045,8 @@ class CalibratePage(QWidget):
     def start(self, port: str):
         self._port = port
         self._ctimer.stop()
+        self._last_angles: List[float] = []
+        self._zero_warned = False
         # Reset
         self._cal_title.setText("Ready to calibrate")
         self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {TEXT};")
@@ -1066,6 +1071,7 @@ class CalibratePage(QWidget):
         self._live_lbl.setStyleSheet(f"font-size: 11px; color: {GREEN};")
 
     def _on_live(self, angles: list):
+        self._last_angles = angles
         for i, (lbl_, ang) in enumerate(zip(self._angle_labels, angles)):
             lbl_.setText(f"{ang:+.1f}")
             close = abs(ang) < 15
@@ -1107,6 +1113,20 @@ class CalibratePage(QWidget):
     # ── Calibration ────────────────────────────────────────────────────────────
 
     def _do_calibrate(self):
+        # Zero-position auto-detection: check if live angles suggest the arm isn't at zero
+        if hasattr(self, '_last_angles') and self._last_angles:
+            far = [i + 1 for i, a in enumerate(self._last_angles) if abs(a) > 40]
+            if far and not hasattr(self, '_zero_warned'):
+                self._zero_warned = True
+                self._cal_title.setText(f"⚠  Joints {far} appear far from zero position")
+                self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {ORANGE};")
+                self._cal_body.setText(
+                    "The GELLO should be in the zero position (arm straight up, all joints at 0°) "
+                    "before calibrating. Adjust the arm and click Run Calibration again, or click "
+                    "again to proceed anyway.")
+                return
+        self._zero_warned = False  # reset for next time
+
         self._cal_btn.setEnabled(False); self._cal_btn.setText("Preparing…")
         self._back_btn.setEnabled(False); self._stop_btn.setEnabled(True)
         self._result_card.setVisible(False); self._launch_btn.setVisible(False)
@@ -1190,36 +1210,30 @@ class CalibratePage(QWidget):
     # ── Launch ─────────────────────────────────────────────────────────────────
 
     def _do_launch(self):
-        # Release the serial port before handing it to the simulation process
+        # Release the serial port before creating the agent in-process
         if self._live_w and self._live_w.isRunning():
-            self._live_w.stop()
-            self._live_w.wait(1000)
+            self._live_w.stop(); self._live_w.wait(1000)
         if self._scan_w and self._scan_w.isRunning():
-            self._scan_w.stop()
-            self._scan_w.wait(500)
+            self._scan_w.stop(); self._scan_w.wait(500)
         self._live_lbl.setText("released"); self._live_lbl.setStyleSheet(f"font-size: 11px; color: {MUTED};")
+        time.sleep(0.3)  # let OS fully release serial fd
 
-        for candidate in [
-            BASE_DIR / ".venv" / "bin" / "python",
-            BASE_DIR / ".venv" / "Scripts" / "python.exe",
-            Path(sys.executable),
-        ]:
-            if Path(candidate).exists():
-                python = str(candidate); break
-        else:
-            python = sys.executable
+        self._launch_btn.setText("Starting…"); self._launch_btn.setEnabled(False)
+        self._real_btn.setEnabled(False); self._back_btn.setEnabled(False)
 
-        self._proc = subprocess.Popen(
-            [python, str(BASE_DIR / "experiments" / "launch_yaml.py"),
-             "--left-config-path", str(CONFIG_SIM)],
-            cwd=str(BASE_DIR),
-            start_new_session=True,   # own process group → killpg works
-        )
-        self._launch_btn.setText("Simulation running…")
-        self._launch_btn.setEnabled(False)
-        self._real_btn.setEnabled(False)
-        self._stop_btn.setEnabled(True)
-        self._stop_btn.setText("✕  Stop Sim")
+        try:
+            from omegaconf import OmegaConf
+            cfg = OmegaConf.to_container(OmegaConf.load(str(CONFIG_SIM)), resolve=True)
+            agent = _instantiate(cfg["agent"])
+            xml_path = str(BASE_DIR / cfg["robot"]["xml_path"])
+            sim = SimulationThread(xml_path, agent)
+            self.go_sim.emit(sim)
+        except Exception as e:
+            self._launch_btn.setText("▶  Launch Simulation"); self._launch_btn.setEnabled(True)
+            self._real_btn.setEnabled(True); self._back_btn.setEnabled(True)
+            self._cal_status.setText(f"Launch failed: {e}")
+            self._cal_status.setStyleSheet(f"color: {RED}; font-size: 12px;")
+            self._start_live()
 
     def _do_launch_real(self):
         """Launch with the real xArm7 arm instead of the MuJoCo simulation."""
@@ -1291,6 +1305,329 @@ class CalibratePage(QWidget):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# PAGE 4 — EMBEDDED SIMULATION
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _instantiate(cfg):
+    """Instantiate an object from a dict with _target_ key."""
+    if isinstance(cfg, dict) and "_target_" in cfg:
+        module_path, class_name = cfg["_target_"].rsplit(".", 1)
+        cls = getattr(importlib.import_module(module_path), class_name)
+        kwargs = {k: v for k, v in cfg.items() if k != "_target_"}
+        return cls(**{k: _instantiate(v) for k, v in kwargs.items()})
+    elif isinstance(cfg, dict):
+        return {k: _instantiate(v) for k, v in cfg.items()}
+    elif isinstance(cfg, list):
+        return [_instantiate(v) for v in cfg]
+    return cfg
+
+
+class SimulationThread(QThread):
+    """Runs MuJoCo physics + GelloAgent in a tight loop, emitting frames."""
+    frame_ready = pyqtSignal(object)       # numpy (H,W,3) uint8
+    telemetry   = pyqtSignal(dict)
+    error       = pyqtSignal(str)
+
+    def __init__(self, xml_path: str, agent, render_w=800, render_h=600):
+        super().__init__()
+        self._xml_path = xml_path
+        self._agent = agent
+        self._rw, self._rh = render_w, render_h
+        self._running = True
+        self._cam_lock = threading.Lock()
+        self._cam_azimuth = 150.0
+        self._cam_elevation = -20.0
+        self._cam_distance = 1.8
+        self._cam_lookat = np.array([0.0, 0.0, 0.3])
+
+    def update_camera(self, daz=0.0, dele=0.0, ddist=0.0):
+        with self._cam_lock:
+            self._cam_azimuth += daz
+            self._cam_elevation = np.clip(self._cam_elevation + dele, -89, 89)
+            self._cam_distance = max(0.3, self._cam_distance + ddist)
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        try:
+            import mujoco
+            from gello.robots.sim_robot import build_scene
+            arena = build_scene(self._xml_path)
+            xml_string = arena.to_xml_string()
+            assets = {}
+            for asset in arena.asset.all_children():
+                if asset.tag == "mesh":
+                    f = asset.file
+                    assets[f.get_vfs_filename()] = f.contents
+            model = mujoco.MjModel.from_xml_string(xml_string, assets)
+            data = mujoco.MjData(model)
+            num_joints = model.nu
+            renderer = mujoco.Renderer(model, height=self._rh, width=self._rw)
+            cam = mujoco.MjvCamera()
+            cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+            cam.azimuth = self._cam_azimuth
+            cam.elevation = self._cam_elevation
+            cam.distance = self._cam_distance
+            cam.lookat[:] = self._cam_lookat
+            scene = mujoco.MjvScene(model, maxgeom=1000)
+            opt = mujoco.MjvOption()
+            render_interval = 1.0 / 60.0
+            last_render = 0.0
+            obs = {}
+            while self._running:
+                t0 = time.time()
+                # Read GELLO servos
+                try:
+                    action = self._agent.act(obs)
+                    if len(action) > num_joints:
+                        action = action[:num_joints]
+                    data.ctrl[:len(action)] = action
+                except Exception:
+                    pass
+                mujoco.mj_step(model, data)
+                now = time.time()
+                if now - last_render >= render_interval:
+                    with self._cam_lock:
+                        cam.azimuth = self._cam_azimuth
+                        cam.elevation = self._cam_elevation
+                        cam.distance = self._cam_distance
+                    renderer.update_scene(data, cam)
+                    frame = renderer.render().copy()
+                    self.frame_ready.emit(frame)
+                    last_render = now
+                # Telemetry at 10 Hz
+                elapsed = time.time() - t0
+                hz = 1.0 / elapsed if elapsed > 0 else 0
+                self.telemetry.emit({
+                    "joint_deg": [float(np.rad2deg(data.qpos[i])) for i in range(min(NUM_JOINTS, num_joints))],
+                    "hz": hz,
+                    "sim_time": float(data.time),
+                })
+                # Rate limit to model timestep
+                remaining = model.opt.timestep - (time.time() - t0)
+                if remaining > 0:
+                    time.sleep(remaining)
+            renderer.close()
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class MujocoViewerWidget(QWidget):
+    """Viewport with mouse orbit controls, screenshot and recording."""
+    def __init__(self):
+        super().__init__()
+        self._sim: Optional[SimulationThread] = None
+        self._last_frame: Optional[np.ndarray] = None
+        self._recording = False
+        self._rec_frames: List[np.ndarray] = []
+        self._drag_last = None
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        self._viewport = QLabel()
+        self._viewport.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._viewport.setStyleSheet("background: #000; border-radius: 8px;")
+        self._viewport.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._viewport.setMinimumSize(400, 300)
+        lay.addWidget(self._viewport)
+        # Toolbar
+        tb = QHBoxLayout(); tb.setSpacing(8)
+        self._snap_btn = QPushButton("📷  Screenshot")
+        self._snap_btn.setObjectName("ghost"); self._snap_btn.setFixedHeight(30)
+        self._snap_btn.clicked.connect(self._screenshot)
+        self._rec_btn = QPushButton("⏺  Record")
+        self._rec_btn.setObjectName("ghost"); self._rec_btn.setFixedHeight(30)
+        self._rec_btn.clicked.connect(self._toggle_record)
+        tb.addWidget(self._snap_btn); tb.addWidget(self._rec_btn); tb.addStretch()
+        lay.addLayout(tb)
+
+    def attach(self, sim: SimulationThread):
+        self._sim = sim
+        sim.frame_ready.connect(self._on_frame)
+
+    def _on_frame(self, frame: np.ndarray):
+        self._last_frame = frame
+        if self._recording:
+            self._rec_frames.append(frame.copy())
+        h, w, _ = frame.shape
+        qimg = QImage(frame.data, w, h, 3 * w, QImage.Format.Format_RGB888)
+        vw, vh = self._viewport.width(), self._viewport.height()
+        pm = QPixmap.fromImage(qimg).scaled(vw, vh, Qt.AspectRatioMode.KeepAspectRatio,
+                                             Qt.TransformationMode.SmoothTransformation)
+        self._viewport.setPixmap(pm)
+
+    # ── Mouse orbit ───────────────────────────────────────────────────────────
+    def mousePressEvent(self, ev):
+        self._drag_last = ev.position()
+    def mouseMoveEvent(self, ev):
+        if self._drag_last and self._sim:
+            dx = ev.position().x() - self._drag_last.x()
+            dy = ev.position().y() - self._drag_last.y()
+            self._sim.update_camera(daz=-dx * 0.5, dele=dy * 0.3)
+            self._drag_last = ev.position()
+    def mouseReleaseEvent(self, ev):
+        self._drag_last = None
+    def wheelEvent(self, ev):
+        if self._sim:
+            d = -ev.angleDelta().y() / 600.0
+            self._sim.update_camera(ddist=d)
+
+    # ── Screenshot ────────────────────────────────────────────────────────────
+    def _screenshot(self):
+        if self._last_frame is None: return
+        path, _ = QFileDialog.getSaveFileName(self, "Save Screenshot", "screenshot.png", "PNG (*.png)")
+        if path:
+            from PIL import Image
+            Image.fromarray(self._last_frame).save(path)
+
+    # ── Recording ─────────────────────────────────────────────────────────────
+    def _toggle_record(self):
+        if not self._recording:
+            self._recording = True; self._rec_frames = []
+            self._rec_btn.setText("⏹  Stop Recording")
+            self._rec_btn.setStyleSheet(f"color: {RED}; border-color: {RED};")
+        else:
+            self._recording = False
+            self._rec_btn.setText("⏺  Record")
+            self._rec_btn.setStyleSheet("")
+            if not self._rec_frames: return
+            path, _ = QFileDialog.getSaveFileName(self, "Save Recording", "recording.mp4",
+                                                   "MP4 (*.mp4);;PNG sequence directory (*)")
+            if not path: return
+            self._save_recording(path)
+
+    def _save_recording(self, path: str):
+        try:
+            import cv2
+            h, w, _ = self._rec_frames[0].shape
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(path, fourcc, 30, (w, h))
+            for f in self._rec_frames:
+                writer.write(cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
+            writer.release()
+        except ImportError:
+            # Fallback: save as PNG sequence
+            out = Path(path).with_suffix("")
+            out.mkdir(parents=True, exist_ok=True)
+            from PIL import Image
+            for i, f in enumerate(self._rec_frames):
+                Image.fromarray(f).save(str(out / f"frame_{i:05d}.png"))
+
+
+class PerformanceDashboard(QWidget):
+    """Side panel showing live joint angles, loop Hz, and sim time."""
+    def __init__(self):
+        super().__init__()
+        self.setFixedWidth(220)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(6)
+        # Header
+        lay.addWidget(label("Dashboard", "h2"))
+        lay.addSpacing(4)
+        # Hz
+        self._hz_lbl = QLabel("Loop: — Hz")
+        self._hz_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {GREEN};")
+        lay.addWidget(self._hz_lbl)
+        # Sim time
+        self._time_lbl = label("Sim: 0.0 s", "tag")
+        lay.addWidget(self._time_lbl)
+        lay.addSpacing(8)
+        lay.addWidget(hline())
+        lay.addSpacing(4)
+        lay.addWidget(label("Joint Angles (°)", "h3"))
+        lay.addSpacing(4)
+        # Joint rows
+        self._bars: List[QProgressBar] = []
+        self._vals: List[QLabel] = []
+        for i in range(NUM_JOINTS):
+            row = QHBoxLayout(); row.setSpacing(6)
+            nm = QLabel(f"J{i+1}"); nm.setFixedWidth(24)
+            nm.setStyleSheet(f"font-size: 11px; color: {MUTED}; font-weight: 600;")
+            bar = QProgressBar(); bar.setRange(-180, 180); bar.setValue(0)
+            bar.setTextVisible(False); bar.setFixedHeight(10)
+            bar.setStyleSheet(f"""
+                QProgressBar {{ background: {BORDER}; border: none; border-radius: 4px; }}
+                QProgressBar::chunk {{ background: {ACCENT}; border-radius: 4px; }}
+            """)
+            val = QLabel("0.0"); val.setFixedWidth(50)
+            val.setAlignment(Qt.AlignmentFlag.AlignRight)
+            val.setStyleSheet(f"font-family: monospace; font-size: 11px; color: {TEXT}; font-weight: 600;")
+            row.addWidget(nm); row.addWidget(bar); row.addWidget(val)
+            lay.addLayout(row)
+            self._bars.append(bar); self._vals.append(val)
+        lay.addStretch()
+
+    def update_telemetry(self, data: dict):
+        hz = data.get("hz", 0)
+        self._hz_lbl.setText(f"Loop: {hz:.0f} Hz")
+        c = GREEN if hz > 25 else (ORANGE if hz > 10 else RED)
+        self._hz_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {c};")
+        self._time_lbl.setText(f"Sim: {data.get('sim_time', 0):.1f} s")
+        for i, deg in enumerate(data.get("joint_deg", [])):
+            if i < len(self._bars):
+                self._bars[i].setValue(int(np.clip(deg, -180, 180)))
+                self._vals[i].setText(f"{deg:+.1f}")
+                ac = GREEN if abs(deg) < 90 else (ORANGE if abs(deg) < 150 else RED)
+                self._bars[i].setStyleSheet(f"""
+                    QProgressBar {{ background: {BORDER}; border: none; border-radius: 4px; }}
+                    QProgressBar::chunk {{ background: {ac}; border-radius: 4px; }}
+                """)
+
+
+class SimulationPage(QWidget):
+    go_back = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._sim: Optional[SimulationThread] = None
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12); root.setSpacing(8)
+        # Header
+        hdr = QHBoxLayout()
+        back = QPushButton("← Back"); back.setObjectName("ghost")
+        back.setFixedWidth(88); back.clicked.connect(self._exit)
+        self._back_btn = back
+        hdr.addWidget(back); hdr.addSpacing(8)
+        hdr.addWidget(label("Simulation", "h1")); hdr.addStretch()
+        root.addLayout(hdr)
+        # Body: viewer + dashboard
+        body = QHBoxLayout(); body.setSpacing(10)
+        self._viewer = MujocoViewerWidget()
+        self._dash = PerformanceDashboard()
+        dash_card = card_widget()
+        dc = QVBoxLayout(dash_card); dc.setContentsMargins(0, 0, 0, 0)
+        dc.addWidget(self._dash)
+        body.addWidget(self._viewer, stretch=3)
+        body.addWidget(dash_card, stretch=0)
+        root.addLayout(body)
+        # Stop button
+        self._stop_btn = QPushButton("✕  Stop Simulation"); self._stop_btn.setObjectName("stop")
+        self._stop_btn.clicked.connect(self._exit)
+        root.addWidget(self._stop_btn)
+
+    def start(self, sim_thread: SimulationThread):
+        self._sim = sim_thread
+        self._viewer.attach(sim_thread)
+        sim_thread.telemetry.connect(self._dash.update_telemetry)
+        sim_thread.error.connect(self._on_error)
+        sim_thread.start()
+
+    def _on_error(self, msg: str):
+        self._viewer._viewport.setText(f"Error: {msg}")
+        self._viewer._viewport.setStyleSheet(f"background: #000; color: {RED}; padding: 20px; font-size: 14px;")
+
+    def _exit(self):
+        if self._sim and self._sim.isRunning():
+            self._sim.stop(); self._sim.wait(3000)
+        self.go_back.emit()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # MAIN WINDOW
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1304,15 +1641,19 @@ class MainWindow(QMainWindow):
         self._home    = HomePage()
         self._onboard = OnboardingPage()
         self._cal     = CalibratePage()
+        self._sim_page = SimulationPage()
 
-        self._stack.addWidget(self._home)    # 0
-        self._stack.addWidget(self._onboard) # 1
-        self._stack.addWidget(self._cal)     # 2
+        self._stack.addWidget(self._home)     # 0
+        self._stack.addWidget(self._onboard)  # 1
+        self._stack.addWidget(self._cal)      # 2
+        self._stack.addWidget(self._sim_page) # 3
 
         self._home.go_setup.connect(self._show_onboarding)
         self._home.go_launch.connect(self._show_calibrate)
         self._onboard.go_back.connect(self._show_home)
         self._cal.go_back.connect(self._show_home)
+        self._cal.go_sim.connect(self._show_simulation)
+        self._sim_page.go_back.connect(self._show_calibrate_from_sim)
 
     def _show_home(self):
         self._stack.setCurrentIndex(0); self._home.refresh()
@@ -1324,6 +1665,19 @@ class MainWindow(QMainWindow):
     def _show_calibrate(self):
         port = detect_port() or "/dev/ttyUSB0"
         self._cal.start(port); self._stack.setCurrentIndex(2)
+
+    def _show_simulation(self, sim_thread: SimulationThread):
+        self.resize(1100, 700)
+        self._sim_page.start(sim_thread)
+        self._stack.setCurrentIndex(3)
+
+    def _show_calibrate_from_sim(self):
+        self.resize(660, 660)
+        self._show_calibrate()
+
+    def closeEvent(self, event):
+        self._sim_page._exit()
+        event.accept()
 
 
 # ─────────────────────────────── Entry ────────────────────────────────────────
