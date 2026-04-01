@@ -189,7 +189,8 @@ class LivePositionWorker(QThread):
                         raw = gsr.getData(id_, ADDR_POS, LEN_POS)
                         if raw > 0x7FFFFFFF:   # two's-complement sign fix
                             raw -= 0x100000000
-                        angles.append(float(np.rad2deg(raw / 2048.0 * np.pi)))
+                        # Center at 0: raw=2048 → 0°, raw=3072 → +90°, raw=1024 → -90°
+                        angles.append(float(np.rad2deg((raw - 2048) / 2048.0 * np.pi)))
                     self.update.emit(angles)
                 self.msleep(200)
             ph.closePort()          # port released immediately, no background thread
@@ -316,7 +317,7 @@ QPushButton {{
     border: none;
     border-radius: 8px;
     padding: 9px 20px;
-    font-size: 14px;
+    font-size: 21px;
     font-weight: 600;
 }}
 QPushButton:hover   {{ background: {ACCENTh}; }}
@@ -342,7 +343,7 @@ QPushButton#stop:disabled {{ background: {BORDER}; color: {MUTED}; }}
 QPushButton#launch {{
     background: {GREEN};
     color: white;
-    font-size: 14px;
+    font-size: 21px;
     font-weight: 700;
     padding: 12px 32px;
     border-radius: 10px;
@@ -355,20 +356,20 @@ QPushButton#link {{
     color: {ACCENT};
     border: none;
     padding: 4px 0px;
-    font-size: 12px;
+    font-size: 18px;
     text-align: left;
 }}
 QPushButton#link:hover {{ color: {ACCENTh}; }}
 
-QLabel#h1    {{ font-size: 26px; font-weight: 700; color: {TEXT}; }}
-QLabel#h2    {{ font-size: 18px; font-weight: 600; color: {TEXT}; }}
-QLabel#h3    {{ font-size: 14px; font-weight: 600; color: {TEXT}; }}
-QLabel#body  {{ font-size: 14px; color: {MUTED}; line-height: 1.5; }}
-QLabel#tag   {{ font-size: 12px; color: {MUTED}; font-weight: 500; }}
-QLabel#ok    {{ font-size: 14px; color: {GREEN};  font-weight: 600; }}
-QLabel#warn  {{ font-size: 14px; color: {ORANGE}; font-weight: 600; }}
-QLabel#err   {{ font-size: 14px; color: {RED};    font-weight: 600; }}
-QLabel#mono  {{ font-family: 'SF Mono', 'Consolas', monospace; font-size: 13px; color: {ACCENT}; }}
+QLabel#h1    {{ font-size: 39px; font-weight: 700; color: {TEXT}; }}
+QLabel#h2    {{ font-size: 27px; font-weight: 600; color: {TEXT}; }}
+QLabel#h3    {{ font-size: 21px; font-weight: 600; color: {TEXT}; }}
+QLabel#body  {{ font-size: 21px; color: {MUTED}; line-height: 1.5; }}
+QLabel#tag   {{ font-size: 18px; color: {MUTED}; font-weight: 500; }}
+QLabel#ok    {{ font-size: 21px; color: {GREEN};  font-weight: 600; }}
+QLabel#warn  {{ font-size: 21px; color: {ORANGE}; font-weight: 600; }}
+QLabel#err   {{ font-size: 21px; color: {RED};    font-weight: 600; }}
+QLabel#mono  {{ font-family: 'SF Mono', 'Consolas', monospace; font-size: 20px; color: {ACCENT}; }}
 
 QProgressBar {{
     background: {BORDER};
@@ -422,10 +423,10 @@ class ServoDots(QWidget):
         for i in range(1, 9):
             col = QVBoxLayout(); col.setSpacing(2)
             dot = QLabel("●"); dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            dot.setStyleSheet("font-size: 17px; color: #D2D2D7;")
+            dot.setStyleSheet("font-size: 26px; color: #D2D2D7;")
             lbl = QLabel("G" if i == 8 else str(i))
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(f"font-size: 10px; color: {MUTED}; font-weight: 500;")
+            lbl.setStyleSheet(f"font-size: 15px; color: {MUTED}; font-weight: 500;")
             col.addWidget(dot); col.addWidget(lbl)
             row.addLayout(col); self._dots.append(dot)
         row.addStretch()
@@ -433,11 +434,11 @@ class ServoDots(QWidget):
     def refresh(self, found: list, highlight: int = -1):
         for i, dot in enumerate(self._dots, 1):
             if i == highlight:
-                dot.setStyleSheet(f"font-size: 17px; color: {ACCENT};")
+                dot.setStyleSheet(f"font-size: 26px; color: {ACCENT};")
             elif i in found:
-                dot.setStyleSheet(f"font-size: 17px; color: {GREEN};")
+                dot.setStyleSheet(f"font-size: 26px; color: {GREEN};")
             else:
-                dot.setStyleSheet("font-size: 17px; color: #D2D2D7;")
+                dot.setStyleSheet("font-size: 26px; color: #D2D2D7;")
 
 
 # ─────────────────────────────── Check row widget ─────────────────────────────
@@ -450,7 +451,7 @@ class CheckRow(QWidget):
         row.setContentsMargins(0, 3, 0, 3)
         self._icon = QLabel("○")
         self._icon.setFixedWidth(20)
-        self._icon.setStyleSheet(f"font-size: 14px; color: {MUTED};")
+        self._icon.setStyleSheet(f"font-size: 21px; color: {MUTED};")
         self._lbl = QLabel(label_text)
         self._lbl.setObjectName("body")
         self._detail = QLabel("")
@@ -462,20 +463,20 @@ class CheckRow(QWidget):
         row.addWidget(self._detail)
 
     def set_ok(self, detail=""):
-        self._icon.setText("✓"); self._icon.setStyleSheet(f"font-size: 14px; color: {GREEN};")
-        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 11px; color: {GREEN};")
+        self._icon.setText("✓"); self._icon.setStyleSheet(f"font-size: 21px; color: {GREEN};")
+        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 16px; color: {GREEN};")
 
     def set_warn(self, detail=""):
-        self._icon.setText("⚠"); self._icon.setStyleSheet(f"font-size: 14px; color: {ORANGE};")
-        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 11px; color: {ORANGE};")
+        self._icon.setText("⚠"); self._icon.setStyleSheet(f"font-size: 21px; color: {ORANGE};")
+        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 16px; color: {ORANGE};")
 
     def set_err(self, detail=""):
-        self._icon.setText("✗"); self._icon.setStyleSheet(f"font-size: 14px; color: {RED};")
-        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 11px; color: {RED};")
+        self._icon.setText("✗"); self._icon.setStyleSheet(f"font-size: 21px; color: {RED};")
+        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 16px; color: {RED};")
 
     def set_pending(self, detail="…"):
-        self._icon.setText("○"); self._icon.setStyleSheet(f"font-size: 14px; color: {MUTED};")
-        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 11px; color: {MUTED};")
+        self._icon.setText("○"); self._icon.setStyleSheet(f"font-size: 21px; color: {MUTED};")
+        self._detail.setText(detail); self._detail.setStyleSheet(f"font-size: 16px; color: {MUTED};")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -497,7 +498,12 @@ class HomePage(QWidget):
         self._build()
 
     def _build(self):
-        root = QVBoxLayout(self)
+        # Centered column — keeps content readable on wide/maximized windows
+        outer = QHBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        _col = QWidget(); _col.setMaximumWidth(900)
+        outer.addStretch(1); outer.addWidget(_col, 6); outer.addStretch(1)
+
+        root = QVBoxLayout(_col)
         root.setContentsMargins(36, 30, 36, 30)
         root.setSpacing(18)
 
@@ -540,36 +546,42 @@ class HomePage(QWidget):
 
         root.addWidget(c)
 
+        # ── Stretch pushes everything below to the bottom ──────
+        root.addStretch(1)
+
         # ── Guidance banner (shown when something fails) ───────
         self._guide_card = QFrame(); self._guide_card.setObjectName("warn_card")
         gl = QHBoxLayout(self._guide_card)
         gl.setContentsMargins(16, 12, 16, 12)
         gl.setSpacing(10)
         guide_icon = QLabel("ℹ"); guide_icon.setFixedWidth(18)
-        guide_icon.setStyleSheet(f"font-size: 16px; color: {ORANGE};")
+        guide_icon.setStyleSheet(f"font-size: 24px; color: {ORANGE};")
         self._guide_lbl = label("", "body", wrap=True)
-        self._guide_lbl.setStyleSheet(f"color: #7C4F00; font-size: 12px;")
+        self._guide_lbl.setStyleSheet(f"color: #7C4F00; font-size: 18px;")
         gl.addWidget(guide_icon)
         gl.addWidget(self._guide_lbl)
         self._guide_card.setVisible(False)
         root.addWidget(self._guide_card)
 
-        # ── Action buttons ─────────────────────────────────────
+        # ── Action buttons (anchored to bottom) ───────────────
+        root.addSpacing(12)
         self._setup_btn = QPushButton("⚙   Setup Servos  (first-time)")
         self._setup_btn.setObjectName("ghost")
         self._setup_btn.clicked.connect(self.go_setup)
         root.addWidget(self._setup_btn)
 
+        root.addSpacing(8)
         self._launch_btn = QPushButton("▶   Calibrate & Launch")
         self._launch_btn.setObjectName("launch")
         self._launch_btn.setEnabled(False)
         self._launch_btn.clicked.connect(self.go_launch)
         root.addWidget(self._launch_btn)
 
-        root.addStretch()
+        root.addSpacing(16)
         foot = label("Move GELLO → simulation follows in real time", "tag")
         foot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         root.addWidget(foot)
+        root.addSpacing(8)
 
         QTimer.singleShot(200, self.refresh)
 
@@ -668,7 +680,11 @@ class OnboardingPage(QWidget):
         self._build()
 
     def _build(self):
-        root = QVBoxLayout(self)
+        outer = QHBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        _col = QWidget(); _col.setMaximumWidth(900)
+        outer.addStretch(1); outer.addWidget(_col, 6); outer.addStretch(1)
+
+        root = QVBoxLayout(_col)
         root.setContentsMargins(36, 26, 36, 26)
         root.setSpacing(14)
 
@@ -693,7 +709,7 @@ class OnboardingPage(QWidget):
         self._intro_card = QFrame(); self._intro_card.setObjectName("info_card")
         il = QHBoxLayout(self._intro_card)
         il.setContentsMargins(16, 12, 16, 12); il.setSpacing(10)
-        intro_icon = QLabel("ℹ"); intro_icon.setStyleSheet(f"font-size: 16px; color: {ACCENT}; font-weight: bold;")
+        intro_icon = QLabel("ℹ"); intro_icon.setStyleSheet(f"font-size: 24px; color: {ACCENT}; font-weight: bold;")
         intro_icon.setFixedWidth(20)
         intro_txt = label(
             "You will connect each servo one at a time and assign it a unique ID. "
@@ -701,7 +717,7 @@ class OnboardingPage(QWidget):
             "before you begin — you will plug in one at a time when prompted.",
             "body", wrap=True
         )
-        intro_txt.setStyleSheet(f"color: #0A3D6B; font-size: 12px;")
+        intro_txt.setStyleSheet(f"color: #0A3D6B; font-size: 18px;")
         il.addWidget(intro_icon); il.addWidget(intro_txt)
         root.addWidget(self._intro_card)
 
@@ -713,7 +729,7 @@ class OnboardingPage(QWidget):
         self._joint_badge = QLabel()
         self._joint_badge.setStyleSheet(
             f"background: {ACCENT}; color: white; border-radius: 6px; "
-            f"padding: 3px 10px; font-size: 11px; font-weight: 700;"
+            f"padding: 3px 10px; font-size: 16px; font-weight: 700;"
         )
         self._joint_badge.setFixedHeight(22)
         self._joint_badge.setSizePolicy(
@@ -751,7 +767,7 @@ class OnboardingPage(QWidget):
             badge = QLabel(title_t)
             badge.setStyleSheet(
                 f"background: #FFF0F0; color: {RED}; border-radius: 4px; "
-                f"padding: 2px 8px; font-size: 11px; font-weight: 600;"
+                f"padding: 2px 8px; font-size: 16px; font-weight: 600;"
             )
             badge.setFixedWidth(100)
             detail = label(detail_t, "body", wrap=True)
@@ -871,7 +887,7 @@ class OnboardingPage(QWidget):
             self._joint_badge.setText("  All 8 servos assigned  ")
             self._joint_badge.setStyleSheet(
                 f"background: {GREEN}; color: white; border-radius: 6px; "
-                f"padding: 3px 10px; font-size: 11px; font-weight: 700;")
+                f"padding: 3px 10px; font-size: 16px; font-weight: 700;")
             self._instr_title.setText("All servos are ready")
             self._instr_body.setText(
                 "Daisy-chain all 8 servos together (OUT → IN through the chain) "
@@ -901,7 +917,7 @@ class OnboardingPage(QWidget):
         c = {
             "ok": GREEN, "warn": ORANGE, "err": RED, "muted": MUTED
         }.get(style, MUTED)
-        self._status_lbl.setStyleSheet(f"font-size: 13px; color: {c};")
+        self._status_lbl.setStyleSheet(f"font-size: 20px; color: {c};")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -926,7 +942,11 @@ class CalibratePage(QWidget):
     # ── Build ──────────────────────────────────────────────────────────────────
 
     def _build(self):
-        root = QVBoxLayout(self)
+        outer = QHBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        _col = QWidget(); _col.setMaximumWidth(900)
+        outer.addStretch(1); outer.addWidget(_col, 6); outer.addStretch(1)
+
+        root = QVBoxLayout(_col)
         root.setContentsMargins(36, 26, 36, 26); root.setSpacing(14)
 
         # Header
@@ -960,14 +980,14 @@ class CalibratePage(QWidget):
         zc = QFrame(); zc.setObjectName("info_card")
         zl = QHBoxLayout(zc); zl.setContentsMargins(16, 12, 16, 12); zl.setSpacing(10)
         z_icon = QLabel("🦾"); z_icon.setFixedWidth(22)
-        z_icon.setStyleSheet("font-size: 18px;")
+        z_icon.setStyleSheet("font-size: 27px;")
         z_txt = label(
             "<b>Zero position:</b> arm pointing straight up, all joints at 0°, "
             "matching the xArm7 default upright pose. "
             "Check the live readings below — all angles should be near 0° before calibrating.",
             "body", wrap=True
         )
-        z_txt.setStyleSheet(f"color: #0A3D6B; font-size: 12px;")
+        z_txt.setStyleSheet(f"color: #0A3D6B; font-size: 18px;")
         zl.addWidget(z_icon); zl.addWidget(z_txt)
         root.addWidget(zc)
 
@@ -986,7 +1006,7 @@ class CalibratePage(QWidget):
             col = QVBoxLayout(); col.setSpacing(2)
             val = QLabel("—"); val.setObjectName("mono")
             val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            val.setStyleSheet(f"font-family: monospace; font-size: 12px; color: {ACCENT}; font-weight: 600;")
+            val.setStyleSheet(f"font-family: monospace; font-size: 18px; color: {ACCENT}; font-weight: 600;")
             lbl_ = label(f"J{i+1}", "tag")
             lbl_.setAlignment(Qt.AlignmentFlag.AlignCenter)
             col.addWidget(val); col.addWidget(lbl_)
@@ -1049,7 +1069,7 @@ class CalibratePage(QWidget):
         self._zero_warned = False
         # Reset
         self._cal_title.setText("Ready to calibrate")
-        self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {TEXT};")
+        self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {TEXT};")
         self._cal_body.setText("When all joint angles above are near 0°, click Run Calibration.")
         self._spinner.setVisible(False); self._cal_status.setText("")
         self._result_card.setVisible(False)
@@ -1068,7 +1088,7 @@ class CalibratePage(QWidget):
         self._live_w.update.connect(self._on_live)
         self._live_w.start()
         self._live_lbl.setText("● live")
-        self._live_lbl.setStyleSheet(f"font-size: 11px; color: {GREEN};")
+        self._live_lbl.setStyleSheet(f"font-size: 16px; color: {GREEN};")
 
     def _on_live(self, angles: list):
         self._last_angles = angles
@@ -1076,7 +1096,7 @@ class CalibratePage(QWidget):
             lbl_.setText(f"{ang:+.1f}")
             close = abs(ang) < 15
             lbl_.setStyleSheet(
-                f"font-family: monospace; font-size: 12px; font-weight: 600; "
+                f"font-family: monospace; font-size: 18px; font-weight: 600; "
                 f"color: {GREEN if close else ORANGE};"
             )
 
@@ -1096,13 +1116,13 @@ class CalibratePage(QWidget):
         self._scan_dots.refresh(found)
         if n == 8:
             self._scan_lbl.setText("✓  All 8 servos detected")
-            self._scan_lbl.setStyleSheet(f"font-size: 13px; color: {GREEN}; font-weight: 600;")
+            self._scan_lbl.setStyleSheet(f"font-size: 20px; color: {GREEN}; font-weight: 600;")
             self._scan_issue.setVisible(False)
             self._cal_btn.setEnabled(True)
         else:
             missing = [i for i in range(1, 9) if i not in found]
             self._scan_lbl.setText(f"⚠  {n} / 8 servos detected")
-            self._scan_lbl.setStyleSheet(f"font-size: 13px; color: {ORANGE}; font-weight: 600;")
+            self._scan_lbl.setStyleSheet(f"font-size: 20px; color: {ORANGE}; font-weight: 600;")
             self._scan_issue.setText(
                 f"Missing servo IDs: {missing}. "
                 "Check cables/power or run Setup Servos from the home screen."
@@ -1119,7 +1139,7 @@ class CalibratePage(QWidget):
             if far and not hasattr(self, '_zero_warned'):
                 self._zero_warned = True
                 self._cal_title.setText(f"⚠  Joints {far} appear far from zero position")
-                self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {ORANGE};")
+                self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {ORANGE};")
                 self._cal_body.setText(
                     "The GELLO should be in the zero position (arm straight up, all joints at 0°) "
                     "before calibrating. Adjust the arm and click Run Calibration again, or click "
@@ -1135,11 +1155,11 @@ class CalibratePage(QWidget):
             self._live_w.stop(); self._live_w.wait(1000)
         if self._scan_w and self._scan_w.isRunning():
             self._scan_w.stop(); self._scan_w.wait(500)
-        self._live_lbl.setText("paused"); self._live_lbl.setStyleSheet(f"font-size: 11px; color: {MUTED};")
+        self._live_lbl.setText("paused"); self._live_lbl.setStyleSheet(f"font-size: 16px; color: {MUTED};")
         # Countdown
         self._countdown = 3
         self._cal_title.setText(f"⚠  Hold completely still — starting in 3…")
-        self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {ORANGE};")
+        self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {ORANGE};")
         self._cal_body.setText("Do NOT move the GELLO. Calibration reads your servo positions in 3 seconds.")
         self._ctimer.start(1000)
 
@@ -1150,7 +1170,7 @@ class CalibratePage(QWidget):
         else:
             self._ctimer.stop()
             self._cal_title.setText("Reading servo positions…")
-            self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {TEXT};")
+            self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {TEXT};")
             self._cal_body.setText("Computing joint offsets — keep the GELLO still.")
             self._spinner.setVisible(True)
             self._cal_w = CalibrationWorker(self._port)
@@ -1179,7 +1199,7 @@ class CalibratePage(QWidget):
 
         if bad:
             self._cal_title.setText("⚠  Calibration complete — some joints may be off")
-            self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {ORANGE};")
+            self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {ORANGE};")
             self._cal_body.setText(
                 f"Joints {bad} have high residual error. Make sure the GELLO is at the exact zero "
                 "position (arm straight up) before calibrating. You can retry or proceed.")
@@ -1187,7 +1207,7 @@ class CalibratePage(QWidget):
             self._cal_btn.setText("📐  Retry Calibration")
         else:
             self._cal_title.setText("✓  Calibration complete")
-            self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {GREEN};")
+            self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {GREEN};")
             self._cal_body.setText("Configuration saved. Launch simulation or connect the real arm.")
             self._cal_btn.setVisible(False)
 
@@ -1200,9 +1220,9 @@ class CalibratePage(QWidget):
     def _on_cal_error(self, msg: str):
         self._spinner.setVisible(False)
         self._cal_title.setText("Calibration failed")
-        self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {RED};")
+        self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 700; color: {RED};")
         self._cal_status.setText(f"Error: {msg}")
-        self._cal_status.setStyleSheet(f"color: {RED}; font-size: 12px;")
+        self._cal_status.setStyleSheet(f"color: {RED}; font-size: 18px;")
         self._cal_btn.setEnabled(True); self._cal_btn.setText("📐  Retry Calibration")
         self._stop_btn.setEnabled(False); self._back_btn.setEnabled(True)
         self._start_live()
@@ -1215,7 +1235,7 @@ class CalibratePage(QWidget):
             self._live_w.stop(); self._live_w.wait(1000)
         if self._scan_w and self._scan_w.isRunning():
             self._scan_w.stop(); self._scan_w.wait(500)
-        self._live_lbl.setText("released"); self._live_lbl.setStyleSheet(f"font-size: 11px; color: {MUTED};")
+        self._live_lbl.setText("released"); self._live_lbl.setStyleSheet(f"font-size: 16px; color: {MUTED};")
         time.sleep(0.3)  # let OS fully release serial fd
 
         self._launch_btn.setText("Starting…"); self._launch_btn.setEnabled(False)
@@ -1235,7 +1255,7 @@ class CalibratePage(QWidget):
             self._launch_btn.setText("▶  Simulation"); self._launch_btn.setEnabled(True)
             self._real_btn.setEnabled(True); self._back_btn.setEnabled(True)
             self._cal_status.setText(f"Launch failed: {e}")
-            self._cal_status.setStyleSheet(f"color: {RED}; font-size: 12px;")
+            self._cal_status.setStyleSheet(f"color: {RED}; font-size: 18px;")
             self._start_live()
 
     def _do_launch_real(self):
@@ -1244,7 +1264,7 @@ class CalibratePage(QWidget):
             self._live_w.stop(); self._live_w.wait(1000)
         if self._scan_w and self._scan_w.isRunning():
             self._scan_w.stop(); self._scan_w.wait(500)
-        self._live_lbl.setText("released"); self._live_lbl.setStyleSheet(f"font-size: 11px; color: {MUTED};")
+        self._live_lbl.setText("released"); self._live_lbl.setStyleSheet(f"font-size: 16px; color: {MUTED};")
 
         for candidate in [
             BASE_DIR / ".venv" / "bin" / "python",
@@ -1289,7 +1309,7 @@ class CalibratePage(QWidget):
         self._kill_proc()
         self._spinner.setVisible(False)
         self._cal_title.setText("Stopped")
-        self._cal_title.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {MUTED};")
+        self._cal_title.setStyleSheet(f"font-size: 20px; font-weight: 600; color: {MUTED};")
         self._cal_btn.setVisible(True); self._cal_btn.setEnabled(True)
         self._cal_btn.setText("📐  Run Calibration")
         self._launch_btn.setText("▶  Simulation"); self._launch_btn.setEnabled(True)
@@ -1530,11 +1550,11 @@ class PerformanceDashboard(QWidget):
         lay.addSpacing(2)
         # Hz
         self._hz_lbl = QLabel("Loop: — Hz")
-        self._hz_lbl.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {GREEN};")
+        self._hz_lbl.setStyleSheet(f"font-size: 21px; font-weight: 600; color: {GREEN};")
         lay.addWidget(self._hz_lbl)
         # Sim time
         self._time_lbl = QLabel("Sim: 0.0 s")
-        self._time_lbl.setStyleSheet(f"font-size: 13px; color: {MUTED};")
+        self._time_lbl.setStyleSheet(f"font-size: 20px; color: {MUTED};")
         lay.addWidget(self._time_lbl)
         lay.addSpacing(6)
         lay.addWidget(hline())
@@ -1547,7 +1567,7 @@ class PerformanceDashboard(QWidget):
         for i in range(NUM_JOINTS):
             row = QHBoxLayout(); row.setSpacing(6)
             nm = QLabel(f"J{i+1}"); nm.setFixedWidth(28)
-            nm.setStyleSheet(f"font-size: 12px; color: {MUTED}; font-weight: 600;")
+            nm.setStyleSheet(f"font-size: 18px; color: {MUTED}; font-weight: 600;")
             bar = QProgressBar(); bar.setRange(-180, 180); bar.setValue(0)
             bar.setTextVisible(False); bar.setFixedHeight(12)
             bar.setStyleSheet(f"""
@@ -1556,7 +1576,7 @@ class PerformanceDashboard(QWidget):
             """)
             val = QLabel("0.0"); val.setFixedWidth(52)
             val.setAlignment(Qt.AlignmentFlag.AlignRight)
-            val.setStyleSheet(f"font-family: monospace; font-size: 12px; color: {TEXT}; font-weight: 600;")
+            val.setStyleSheet(f"font-family: monospace; font-size: 18px; color: {TEXT}; font-weight: 600;")
             row.addWidget(nm); row.addWidget(bar); row.addWidget(val)
             lay.addLayout(row)
             self._bars.append(bar); self._vals.append(val)
@@ -1581,7 +1601,7 @@ class PerformanceDashboard(QWidget):
     def set_recording(self, active: bool):
         if active:
             self._rec_btn.setText("Stop Rec")
-            self._rec_btn.setStyleSheet(f"background: {RED}; color: white; border: none; border-radius: 8px; padding: 9px 20px; font-size: 13px; font-weight: 600;")
+            self._rec_btn.setStyleSheet(f"background: {RED}; color: white; border: none; border-radius: 8px; padding: 9px 20px; font-size: 20px; font-weight: 600;")
         else:
             self._rec_btn.setText("Record")
             self._rec_btn.setStyleSheet("")
@@ -1591,7 +1611,7 @@ class PerformanceDashboard(QWidget):
         hz = data.get("hz", 0)
         self._hz_lbl.setText(f"Loop: {hz:.0f} Hz")
         c = GREEN if hz > 25 else (ORANGE if hz > 10 else RED)
-        self._hz_lbl.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {c};")
+        self._hz_lbl.setStyleSheet(f"font-size: 21px; font-weight: 600; color: {c};")
         self._time_lbl.setText(f"Sim: {data.get('sim_time', 0):.1f} s")
         for i, deg in enumerate(data.get("joint_deg", [])):
             if i < len(self._bars):
@@ -1648,7 +1668,7 @@ class SimulationPage(QWidget):
 
     def _on_error(self, msg: str):
         self._viewer._viewport.setText(f"Error: {msg}")
-        self._viewer._viewport.setStyleSheet(f"background: #000; color: {RED}; padding: 20px; font-size: 14px;")
+        self._viewer._viewport.setStyleSheet(f"background: #000; color: {RED}; padding: 20px; font-size: 21px;")
 
     def _exit(self):
         if self._sim and self._sim.isRunning():
