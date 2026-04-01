@@ -5,21 +5,21 @@ robot:
 
 agent:
   _target_: gello.agents.gello_agent.GelloAgent
-  port: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTA7NNMG-if00-port0"
+  port: "COM9"
   dynamixel_config:
     _target_: gello.agents.gello_agent.DynamixelRobotConfig
     joint_ids: [1, 2, 3, 4, 5, 6, 7]
     joint_offsets: [
-      1.5708,
       3.1416,
-      6.2832,
       3.1416,
-      6.2832,
+      4.7124,
+      3.1416,
+      4.7124,
       1.5708,
-      4.7124
+      6.2832
     ]
     joint_signs: [1, -1, 1, 1, 1, 1, -1]
-    gripper_config: [8, 165, 123]
+    gripper_config: [8, 195, 153]
   start_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 hz: 30
