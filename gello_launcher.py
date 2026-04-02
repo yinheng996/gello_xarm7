@@ -129,39 +129,42 @@ class SimulationThread(QThread):
 
             self.ready.emit()
 
-            render_interval = 1.0 / 60.0
-            last_render     = 0.0
-            obs             = {}
+            # Run at 30 Hz: compute how many physics substeps fit in one frame
+            TARGET_HZ  = 30
+            dt_target  = 1.0 / TARGET_HZ
+            n_substeps = max(1, round(dt_target / model.opt.timestep))
+            obs        = {}
 
             while self._running:
-                t0 = time.time()
+                t0 = time.perf_counter()
+
+                # --- read servo ---
                 try:
                     action = agent.act(obs)
                     if len(action) > num_joints:
                         action = action[:num_joints]
                     if len(action) == num_joints and num_joints >= 8:
-                        action       = action.copy()
-                        action[7]   *= 255
+                        action     = action.copy()
+                        action[7] *= 255
                     data.ctrl[:len(action)] = action
                 except Exception:
                     pass
 
-                n_substeps = max(1, int(model.opt.timestep / 0.0005))
+                # --- step physics ---
                 for _ in range(n_substeps):
                     mujoco.mj_step(model, data)
 
-                now = time.time()
-                if now - last_render >= render_interval:
-                    with self._cam_lock:
-                        cam.azimuth   = self._cam_azimuth
-                        cam.elevation = self._cam_elevation
-                        cam.distance  = self._cam_distance
-                    renderer.update_scene(data, cam)
-                    frame = renderer.render().copy()
-                    self.frame_ready.emit(frame)
-                    last_render = now
+                # --- render every frame (we're only at 30 Hz, so cost is amortised) ---
+                with self._cam_lock:
+                    cam.azimuth   = self._cam_azimuth
+                    cam.elevation = self._cam_elevation
+                    cam.distance  = self._cam_distance
+                renderer.update_scene(data, cam)
+                frame = renderer.render().copy()
+                self.frame_ready.emit(frame)
 
-                elapsed = time.time() - t0
+                # --- telemetry ---
+                elapsed = time.perf_counter() - t0
                 hz = 1.0 / elapsed if elapsed > 0 else 0
                 self.telemetry.emit({
                     "joint_deg": [float(np.rad2deg(data.qpos[i]))
@@ -169,7 +172,9 @@ class SimulationThread(QThread):
                     "hz":      hz,
                     "sim_time": float(data.time),
                 })
-                remaining = model.opt.timestep - (time.time() - t0)
+
+                # --- sleep remainder so we hold the target rate ---
+                remaining = dt_target - (time.perf_counter() - t0)
                 if remaining > 0:
                     time.sleep(remaining)
 
@@ -208,7 +213,7 @@ class MujocoViewerWidget(QWidget):
         vw, vh = self._viewport.width(), self._viewport.height()
         pm = QPixmap.fromImage(qimg).scaled(
             vw, vh, Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation)
+            Qt.TransformationMode.FastTransformation)
         self._viewport.setPixmap(pm)
 
     def mousePressEvent(self, ev):
@@ -1023,7 +1028,8 @@ class LaunchPage(QWidget):
             self._sim_thread.wait(3000)
         self._sim_thread = None
         self._reset_picker()
-        self._stack.setCurrentIndex(0)
+        self._stack.setCurrentIndex(0)   # reset to picker for next time
+        self.go_back.emit()              # go all the way back to home
 
     def _kill_proc(self):
         if self._proc and self._proc.poll() is None:
