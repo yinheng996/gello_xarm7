@@ -71,10 +71,11 @@ class CalibrationWizard(QWidget):
         self._viewport.setMinimumWidth(500)
         root.addWidget(self._viewport, 3)
 
-        # Right: controls panel
-        panel = QWidget()
+        # Right: controls panel — QFrame with object name so global QWidget rule doesn't override bg
+        panel = QFrame()
+        panel.setObjectName("calib_panel")
+        panel.setStyleSheet(f"QFrame#calib_panel {{ background: {CARD}; }}")
         panel.setFixedWidth(420)
-        panel.setStyleSheet(f"background: {CARD};")
         pl = QVBoxLayout(panel)
         pl.setContentsMargins(0, 0, 0, 0)
         pl.setSpacing(0)
@@ -83,10 +84,12 @@ class CalibrationWizard(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"background: {CARD};")
+        scroll.setStyleSheet(f"QScrollArea {{ background: {CARD}; border: none; }}"
+                             f"QWidget {{ background: {CARD}; }}")
 
-        content_w = QWidget()
-        content_w.setStyleSheet(f"background: {CARD};")
+        content_w = QFrame()
+        content_w.setObjectName("calib_content")
+        content_w.setStyleSheet(f"QFrame#calib_content {{ background: {CARD}; }}")
         cl = QVBoxLayout(content_w)
         cl.setContentsMargins(24, 24, 24, 12)
         cl.setSpacing(8)
@@ -115,8 +118,9 @@ class CalibrationWizard(QWidget):
         self._inst_title = QLabel("Position J1")
         self._inst_title.setStyleSheet(f"font-size: 17px; font-weight: 700; color: #0A3D6B;")
         self._inst_body = QLabel("Match this joint to the simulation pose.")
-        self._inst_body.setStyleSheet(f"font-size: 13px; color: #0A3D6B; line-height: 1.4;")
+        self._inst_body.setStyleSheet(f"font-size: 13px; color: #0A3D6B;")
         self._inst_body.setWordWrap(True)
+        self._inst_body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         il.addWidget(self._inst_title)
         il.addWidget(self._inst_body)
         cl.addWidget(inst_frame)

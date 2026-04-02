@@ -1,21 +1,11 @@
-# keep in alphabetical order
+# xArm7 Controller — Python dependencies
 dm_control
+mujoco
+numpy
 omegaconf==2.3.0
 Pillow
-pin==3.7.0
-pygame
-pyspacemouse
 PyQt6
-pyquaternion
-pyrealsense2
-pyzmq
-pure-python-adb
-quaternion
-setuptools
-tyro
-ur-rtde
-zmq
-xarm
-xarm-python-sdk
-numpy-quaternion
 termcolor
+tyro
+xarm-python-sdk
+dynamixel-sdk

@@ -793,34 +793,16 @@ class LaunchPage(QWidget):
         dl.setContentsMargins(80, 40, 80, 40)
         dl.setSpacing(0)
 
-        dl.addStretch(1)
+        dl.addStretch(2)
         dl.addWidget(_mk_dark_lbl("Launch", 32, bold=True, color="white"))
         dl.addSpacing(2)
         dl.addWidget(_mk_dark_lbl("xArm7", 32, bold=True,
                                    color="rgba(255,255,255,0.35)"))
-        dl.addSpacing(16)
+        dl.addSpacing(20)
         dl.addWidget(_mk_dark_lbl(
-            "Choose how to run the controller.\n"
-            "Simulation lets you test without the physical arm.",
+            "Choose how to run the controller.\nSimulation lets you test without the physical arm.",
             13, color="rgba(255,255,255,0.4)", wrap=True))
-        dl.addStretch(1)
-
-        back = QPushButton("← Back")
-        back.setCursor(Qt.CursorShape.PointingHandCursor)
-        back.setFixedWidth(90)
-        back.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.08);
-                color: rgba(255,255,255,0.7);
-                border: 1px solid rgba(255,255,255,0.15);
-                border-radius: 8px;
-                font-size: 13px; font-weight: 600;
-                padding: 6px 12px;
-            }
-            QPushButton:hover { background: rgba(255,255,255,0.14); }
-        """)
-        back.clicked.connect(self._do_back)
-        dl.addWidget(back)
+        dl.addStretch(3)
 
         root.addWidget(dark, 3)
 
@@ -830,8 +812,27 @@ class LaunchPage(QWidget):
         panel.setStyleSheet(f"QFrame#light_panel {{ background: {CARD}; }}")
         panel.setFixedWidth(420)
         pl = QVBoxLayout(panel)
-        pl.setContentsMargins(40, 40, 40, 40)
+        pl.setContentsMargins(40, 32, 40, 40)
         pl.setSpacing(0)
+
+        # Back button at the top of the right panel
+        back = QPushButton("← Back")
+        back.setCursor(Qt.CursorShape.PointingHandCursor)
+        back.setFixedWidth(88)
+        back.setFixedHeight(34)
+        back.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {ACCENT};
+                border: 1.5px solid {BORDER};
+                border-radius: 8px;
+                font-size: 13px; font-weight: 600;
+                padding: 0px 12px;
+            }}
+            QPushButton:hover {{ background: #F0F4FF; border-color: {ACCENT}; }}
+        """)
+        back.clicked.connect(self._do_back)
+        pl.addWidget(back)
 
         pl.addStretch(1)
 

@@ -25,18 +25,16 @@ from gello.utils.ui_common import (
 # ─────────────────────────── Package registry ─────────────────────────────────
 # Each entry: (display_name, import_name, pip_name, description)
 PACKAGES: List[Tuple[str, str, str, str]] = [
-    ("PyQt6",            "PyQt6",           "PyQt6",               "GUI framework"),
-    ("NumPy",            "numpy",            "numpy",               "Numerical computing"),
-    ("MuJoCo",           "mujoco",           "mujoco",              "Physics simulation"),
-    ("dm_control",       "dm_control",       "dm_control",          "DeepMind MuJoCo bindings"),
-    ("OmegaConf",        "omegaconf",        "omegaconf==2.3.0",    "Configuration management"),
-    ("Tyro",             "tyro",             "tyro",                "CLI argument parsing"),
-    ("xArm Python SDK",  "xarm",             "xarm-python-sdk",     "xArm robot control"),
-    ("Dynamixel SDK",    "dynamixel_sdk",    "dynamixel-sdk",       "Servo communication"),
-    ("Pillow",           "PIL",              "Pillow",              "Image processing"),
-    ("pyzmq",            "zmq",              "pyzmq",               "ZeroMQ messaging"),
-    ("quaternion",       "quaternion",       "numpy-quaternion",    "Quaternion math"),
-    ("termcolor",        "termcolor",        "termcolor",           "Coloured terminal output"),
+    ("PyQt6",           "PyQt6",        "PyQt6",            "GUI framework"),
+    ("NumPy",           "numpy",        "numpy",            "Numerical computing"),
+    ("MuJoCo",          "mujoco",       "mujoco",           "Physics simulation"),
+    ("dm_control",      "dm_control",   "dm_control",       "DeepMind MuJoCo bindings"),
+    ("OmegaConf",       "omegaconf",    "omegaconf==2.3.0", "Configuration management"),
+    ("Tyro",            "tyro",         "tyro",             "CLI argument parsing"),
+    ("xArm Python SDK", "xarm",         "xarm-python-sdk",  "xArm robot control"),
+    ("Dynamixel SDK",   "dynamixel_sdk","dynamixel-sdk",    "Servo communication"),
+    ("Pillow",          "PIL",          "Pillow",           "Image processing"),
+    ("termcolor",       "termcolor",    "termcolor",        "Coloured terminal output"),
 ]
 
 BASE_DIR = Path(__file__).parent
