@@ -7,6 +7,7 @@ For each joint: see the sim pose → match your servo → save offset → verify
 Then calibrate gripper open/close. Finally, test everything together.
 """
 
+import math
 import re
 import sys
 import threading
@@ -60,8 +61,8 @@ QPushButton#ghost {{
 }}
 QPushButton#ghost:hover {{ background: #EAF2FC; }}
 QPushButton#green {{
-    background: {GREEN}; color: white; font-size: 14px; font-weight: 700;
-    padding: 10px 24px; border-radius: 8px;
+    background: {GREEN}; color: white; font-size: 15px; font-weight: 700;
+    padding: 14px 24px; border-radius: 8px;
 }}
 QPushButton#green:hover {{ background: #2DB84C; }}
 QPushButton#green:disabled {{ background: {BORDER}; color: {MUTED}; }}
@@ -177,6 +178,7 @@ class SimRenderer(QThread):
         self._running = True
         self._qpos = np.zeros(20)  # more than enough
         self._lock = threading.Lock()
+        self._active_joint = -1  # -1 = none, 0-6 = J1-J7, 7 = gripper
 
     def set_qpos(self, idx: int, val: float):
         with self._lock:
@@ -188,8 +190,72 @@ class SimRenderer(QThread):
                 if i < len(self._qpos):
                     self._qpos[i] = v
 
+    def set_active_joint(self, idx: int):
+        """Set which joint gets a pulsing dot overlay (-1 = none)."""
+        self._active_joint = idx
+
     def stop(self):
         self._running = False
+
+    @staticmethod
+    def _project_to_2d(point_3d, gl_cam, fovy_deg, width, height):
+        """Project a 3D world point to 2D pixel coordinates.
+
+        Uses the actual GL camera vectors from the MuJoCo scene
+        for exact alignment with the rendered image.
+        """
+        cam_pos = np.array(gl_cam.pos)
+        forward = np.array(gl_cam.forward)
+        up = np.array(gl_cam.up)
+        right = np.cross(forward, up)
+
+        p = np.array(point_3d) - cam_pos
+        x_cam = np.dot(p, right)
+        y_cam = np.dot(p, up)
+        z_cam = np.dot(p, forward)
+        if z_cam <= 0:
+            return None
+
+        f = 1.0 / np.tan(np.deg2rad(fovy_deg) / 2.0)
+        px = int(width / 2 + x_cam / z_cam * f * height / 2)
+        py = int(height / 2 - y_cam / z_cam * f * height / 2)
+        return (px, py)
+
+    @staticmethod
+    def _draw_pulsing_dot(frame, cx, cy, t):
+        """Draw a pulsing dot with glow at (cx, cy) on the numpy frame."""
+        h, w, _ = frame.shape
+        pulse = math.sin(t * 5.0) * 0.5 + 0.5  # 0..1
+
+        r_inner = 5 + 4 * pulse
+        r_outer = 14 + 10 * pulse
+        r_max = int(r_outer) + 2
+
+        y0, y1 = max(0, cy - r_max), min(h, cy + r_max + 1)
+        x0, x1 = max(0, cx - r_max), min(w, cx + r_max + 1)
+        if y1 <= y0 or x1 <= x0:
+            return
+
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2).astype(np.float32)
+
+        color = np.array([0, 113, 227], dtype=np.float32)  # accent blue
+        region = frame[y0:y1, x0:x1]
+
+        # Outer glow
+        outer_mask = (dist > r_inner) & (dist <= r_outer)
+        if outer_mask.any():
+            frac = (dist[outer_mask] - r_inner) / (r_outer - r_inner)
+            alpha = ((0.35 + 0.2 * pulse) * (1.0 - frac))[:, np.newaxis]
+            region[outer_mask] = (alpha * color + (1 - alpha) * region[outer_mask].astype(np.float32)).astype(np.uint8)
+
+        # Inner solid dot
+        inner_mask = dist <= r_inner
+        region[inner_mask] = color.astype(np.uint8)
+
+        # White center highlight
+        center_mask = dist <= r_inner * 0.35
+        region[center_mask] = [255, 255, 255]
 
     def run(self):
         try:
@@ -215,6 +281,29 @@ class SimRenderer(QThread):
             cam.distance = 1.8
             cam.lookat[:] = [0.0, 0.0, 0.3]
 
+            # Build a name→id map for all joints in the scene.
+            # dm_control's attach() namespaces joints (e.g. "xarm7_nohand/joint1"),
+            # so we match by the final segment after any "/" separator.
+            jnt_name_map: dict = {}
+            for j in range(model.njnt):
+                full = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j) or ""
+                suffix = full.split("/")[-1]
+                jnt_name_map[suffix] = j
+                jnt_name_map[full] = j  # also keep full name as fallback
+
+            arm_jnt_ids = [jnt_name_map.get(f"joint{i}", -1) for i in range(1, NUM_JOINTS + 1)]
+
+            # Gripper: try a few common names, fall back to J7 anchor
+            gripper_jnt_id = next(
+                (jnt_name_map[k] for k in ("gripper", "finger1", "left_driver_joint")
+                 if k in jnt_name_map),
+                arm_jnt_ids[-1]
+            )
+            print(f"[CalibWizard] joint name map suffixes: {list(jnt_name_map.keys())[:20]}")
+            print(f"[CalibWizard] arm_jnt_ids={arm_jnt_ids}  gripper_jnt_id={gripper_jnt_id}")
+
+            fovy = model.vis.global_.fovy
+
             while self._running:
                 with self._lock:
                     nq = min(len(self._qpos), model.nq)
@@ -222,6 +311,24 @@ class SimRenderer(QThread):
                 mujoco.mj_forward(model, data)
                 renderer.update_scene(data, cam)
                 frame = renderer.render().copy()
+
+                # Draw pulsing dot at the joint's world-space pivot (xanchor)
+                aj = self._active_joint
+                if 0 <= aj < NUM_JOINTS:
+                    jid = arm_jnt_ids[aj]
+                    if jid >= 0:
+                        pos_3d = data.xanchor[jid]
+                        gl_cam = renderer._scene.camera[0]
+                        pt = self._project_to_2d(pos_3d, gl_cam, fovy, self._rw, self._rh)
+                        if pt is not None:
+                            self._draw_pulsing_dot(frame, pt[0], pt[1], time.time())
+                elif aj == NUM_JOINTS and gripper_jnt_id >= 0:
+                    pos_3d = data.xanchor[gripper_jnt_id]
+                    gl_cam = renderer._scene.camera[0]
+                    pt = self._project_to_2d(pos_3d, gl_cam, fovy, self._rw, self._rh)
+                    if pt is not None:
+                        self._draw_pulsing_dot(frame, pt[0], pt[1], time.time())
+
                 self.frame_ready.emit(frame)
                 time.sleep(1.0 / 30)
             renderer.close()
@@ -324,15 +431,17 @@ class CalibrationWizard(QWidget):
         il.addWidget(self._inst_body)
         cl.addWidget(inst_frame)
 
-        # Live reading display
+        # Live reading display (tall box)
         reading_frame = QFrame()
         reading_frame.setObjectName("card")
+        reading_frame.setMinimumHeight(180)
         rl = QVBoxLayout(reading_frame)
-        rl.setContentsMargins(16, 12, 16, 12)
-        rl.setSpacing(4)
+        rl.setContentsMargins(16, 20, 16, 20)
+        rl.setSpacing(6)
         rh = QLabel("Live Servo Reading")
         rh.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {MUTED};")
         rl.addWidget(rh)
+        rl.addStretch(1)
         self._reading_lbl = QLabel("--")
         self._reading_lbl.setStyleSheet(f"font-family: Consolas, monospace; font-size: 28px; font-weight: 700; color: {ACCENT};")
         self._reading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -341,6 +450,7 @@ class CalibrationWizard(QWidget):
         self._reading_detail.setStyleSheet(f"font-size: 11px; color: {MUTED};")
         self._reading_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rl.addWidget(self._reading_detail)
+        rl.addStretch(1)
         cl.addWidget(reading_frame)
 
         # Direction indicator (shown during verify phase)
@@ -363,23 +473,32 @@ class CalibrationWizard(QWidget):
         scroll.setWidget(content_w)
         pl.addWidget(scroll, 1)
 
-        # ── Buttons pinned at bottom, outside the scroll area ──
+        # ── Buttons pinned to bottom, always visible ──
         btn_container = QWidget()
         btn_container.setStyleSheet(f"background: {CARD}; border-top: 1px solid {BORDER};")
         bl = QVBoxLayout(btn_container)
-        bl.setContentsMargins(24, 10, 24, 14)
+        bl.setContentsMargins(24, 12, 24, 16)
         bl.setSpacing(8)
 
         self._flip_btn = QPushButton("Flip Direction")
         self._flip_btn.setObjectName("ghost")
         self._flip_btn.setMinimumHeight(38)
+        self._flip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._flip_btn.clicked.connect(self._on_flip)
         self._flip_btn.setVisible(False)
         bl.addWidget(self._flip_btn)
 
         self._action_btn = QPushButton("Save J1 Offset")
-        self._action_btn.setObjectName("green")
         self._action_btn.setMinimumHeight(48)
+        self._action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._action_btn.setStyleSheet(
+            "QPushButton {"
+            f"  background-color: {GREEN}; color: white; font-size: 14px;"
+            "  font-weight: 700; padding: 12px 24px; border-radius: 8px; border: none;"
+            "}"
+            "QPushButton:hover { background-color: #2DB84C; }"
+            f"QPushButton:disabled {{ background-color: {BORDER}; color: {MUTED}; }}"
+        )
         self._action_btn.clicked.connect(self._on_action)
         bl.addWidget(self._action_btn)
 
@@ -427,6 +546,15 @@ class CalibrationWizard(QWidget):
         self._verifying = False
         self._dir_frame.setVisible(False)
         self._flip_btn.setVisible(False)
+
+        # Update pulsing dot on sim
+        if self._sim:
+            if s < NUM_JOINTS:
+                self._sim.set_active_joint(s)
+            elif s in (NUM_JOINTS, NUM_JOINTS + 1):
+                self._sim.set_active_joint(NUM_JOINTS)  # gripper
+            else:
+                self._sim.set_active_joint(-1)
 
         total = 10  # J1-J7 (7) + gripper open + gripper close + test
         self._step_lbl.setText(f"Step {s + 1} of {total}")
