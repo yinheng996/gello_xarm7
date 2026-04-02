@@ -1,5 +1,5 @@
 """
-Shared servo I/O utilities for GELLO xArm7.
+Shared servo I/O utilities for xArm7.
 
 Provides:
   - detect_port()          — auto-detect U2D2 / FTDI serial port

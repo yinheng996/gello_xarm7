@@ -1,5 +1,5 @@
 """
-Shared MuJoCo offline renderer for GELLO xArm7.
+Shared MuJoCo offline renderer for xArm7.
 
 Provides:
   - SimRenderer  — QThread that renders MuJoCo frames at ~30 fps,
@@ -131,8 +131,8 @@ class SimRenderer(QThread):
             cam.distance = 1.8
             cam.lookat[:] = [0.0, 0.0, 0.3]
 
-            # Build a name→id map for all joints in the scene.
-            # dm_control's attach() namespaces joints (e.g. "xarm7_nohand/joint1"),
+            # Build name→id maps for joints and bodies.
+            # dm_control's attach() namespaces names (e.g. "xarm7_nohand/joint1"),
             # so we match by the final segment after any "/" separator.
             jnt_name_map: dict = {}
             for j in range(model.njnt):
@@ -141,7 +141,18 @@ class SimRenderer(QThread):
                 jnt_name_map[suffix] = j
                 jnt_name_map[full] = j
 
+            body_name_map: dict = {}
+            for b in range(model.nbody):
+                full = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, b) or ""
+                suffix = full.split("/")[-1]
+                body_name_map[suffix] = b
+                body_name_map[full] = b
+
             arm_jnt_ids = [jnt_name_map.get(f"joint{i}", -1) for i in range(1, NUM_JOINTS + 1)]
+
+            # Servo 1 (joint1) lives in the base housing — show dot there instead of
+            # at joint1's pivot which sits at shoulder height.
+            link_base_id = body_name_map.get("link_base", -1)
 
             gripper_jnt_id = next(
                 (jnt_name_map[k] for k in ("gripper", "finger1", "left_driver_joint")
@@ -160,16 +171,25 @@ class SimRenderer(QThread):
                 frame = renderer.render().copy()
 
                 aj = self._active_joint
+                pos_3d = None
                 if 0 <= aj < NUM_JOINTS:
                     jid = arm_jnt_ids[aj]
                     if jid >= 0:
-                        pos_3d = data.xanchor[jid]
-                        gl_cam = renderer._scene.camera[0]
-                        pt = self._project_to_2d(pos_3d, gl_cam, fovy, self._rw, self._rh)
-                        if pt is not None:
-                            self._draw_pulsing_dot(frame, pt[0], pt[1], time.time())
+                        if aj == 0 and link_base_id >= 0:
+                            # Servo 1: base rotation motor lives in link_base
+                            pos_3d = data.xpos[link_base_id]
+                        elif aj == 2 and arm_jnt_ids[1] >= 0:
+                            # Servo 3: midpoint between joint2 and joint3 pivots
+                            pos_3d = (data.xanchor[arm_jnt_ids[1]] + data.xanchor[jid]) * 0.5
+                        elif aj == 4 and arm_jnt_ids[3] >= 0:
+                            # Servo 5: midpoint between joint4 and joint5 pivots
+                            pos_3d = (data.xanchor[arm_jnt_ids[3]] + data.xanchor[jid]) * 0.5
+                        else:
+                            pos_3d = data.xanchor[jid]
                 elif aj == NUM_JOINTS and gripper_jnt_id >= 0:
                     pos_3d = data.xanchor[gripper_jnt_id]
+
+                if pos_3d is not None:
                     gl_cam = renderer._scene.camera[0]
                     pt = self._project_to_2d(pos_3d, gl_cam, fovy, self._rw, self._rh)
                     if pt is not None:
