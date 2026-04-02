@@ -83,7 +83,7 @@ if !errorlevel! neq 0 (
 
 :: ── 4. Launch ─────────────────────────────────────────────────────────────────
 echo.
-echo  [>>]  Launching xArm7 Controller...
+echo  [^>^>]  Launching xArm7 Controller...
 echo.
 !PYEXE! -X utf8 gello_launcher.py
 if !errorlevel! neq 0 (
