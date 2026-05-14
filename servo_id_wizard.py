@@ -275,6 +275,7 @@ class ServoIDWizard(QWidget):
         self._set_status("Scanning for servo on the bus…", MUTED)
         self._scan_w = ScanWorker(self._port)
         self._scan_w.result.connect(self._on_scan)
+        self._scan_w.error.connect(lambda msg: self._set_status(msg, RED))
         self._scan_w.start()
 
     def _on_scan(self, data: dict):

@@ -117,6 +117,7 @@ class ServoReaderThread(QThread):
 class ScanWorker(QThread):
     """Broadcast ping — returns dict of {id: model_info}."""
     result = pyqtSignal(dict)
+    error = pyqtSignal(str)
 
     def __init__(self, port: str):
         super().__init__()
@@ -131,14 +132,24 @@ class ScanWorker(QThread):
             from dynamixel_sdk import PacketHandler, PortHandler
             ph = PortHandler(self.port)
             pk = PacketHandler(2.0)
-            ph.openPort()
-            ph.setBaudRate(BAUD_RATE)
+            if not ph.openPort():
+                if not self._stop:
+                    self.error.emit(f"Failed to open port {self.port}")
+                    self.result.emit({})
+                return
+            if not ph.setBaudRate(BAUD_RATE):
+                ph.closePort()
+                if not self._stop:
+                    self.error.emit(f"Failed to set baud rate {BAUD_RATE} on {self.port}")
+                    self.result.emit({})
+                return
             data, _ = pk.broadcastPing(ph)
             ph.closePort()
             if not self._stop:
                 self.result.emit(dict(data) if data else {})
-        except Exception:
+        except Exception as e:
             if not self._stop:
+                self.error.emit(f"Scan error on {self.port}: {e}")
                 self.result.emit({})
 
 
